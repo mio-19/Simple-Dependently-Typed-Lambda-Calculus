@@ -57,7 +57,14 @@ sealed trait Exp {
 
 final case class Apply(f: Exp, value: Exp) extends Exp {
   override def untypedNormalForm: Exp = f.untypedNormalForm match {
-    case Lambda(arg, body) => body.subst(arg, value).untypedNormalForm
+    case Lambda(arg, body) => {
+      val nextStep = body.subst(arg, value)
+      if (this == nextStep) {
+        throw new IllegalStateException("Welcome to the Future!")
+      } else {
+        this.untypedNormalForm
+      }
+    }
     case f => Apply(f, value.untypedNormalForm)
   }
 
