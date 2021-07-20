@@ -1,5 +1,15 @@
 package sdtlc
 
+import scala.collection.immutable.HashMap
+
+final case class Context(inner: HashMap[Var, Exp]) {
+  def extend(x: Var, t: Exp): Context = Context(inner.updated(x, t))
+}
+
+object Context {
+  val Empty: Context = Context(HashMap())
+}
+
 sealed trait Exp {
   def untypedNormalForm: Exp
 
