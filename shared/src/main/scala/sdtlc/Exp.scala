@@ -2,6 +2,12 @@ package sdtlc
 
 import scala.collection.immutable.HashMap
 
+object SDTLC {
+  type Nat = Int
+}
+
+import SDTLC._
+
 final case class Context(inner: HashMap[Var, Exp]) {
   def extend(x: Var, t: Exp): Context = Context(inner.updated(x, t))
 
@@ -40,6 +46,8 @@ sealed trait Exp {
   def check(env: Context, t: Exp): Boolean = checkInfer(env, t)
 
   def equalType(other: Exp): Boolean = ???
+
+  def level(env: Context): Option[Nat]
 }
 
 final case class Apply(f: Exp, x: Exp) extends Exp {
@@ -56,6 +64,11 @@ final case class Apply(f: Exp, x: Exp) extends Exp {
   }
 
   override def check(env: Context, t: Exp): Boolean = this.checkInfer(env, t)
+
+  override def level(env: Context): Option[Nat] = for {
+    l0 <- f.level(env)
+    l1 <- x.level(env)
+  } yield l0.max(l1)
 }
 
 final case class Var(x: Symbol) extends Exp {
@@ -68,6 +81,12 @@ final case class Var(x: Symbol) extends Exp {
   }
 
   override def infer(env: Context): Option[Exp] = env.get(this)
+
+  override def level(env: Context): Option[Nat] = env.get(this).flatMap(_.level(env)).flatMap(x => if (x == 0) {
+    None
+  } else {
+    Some(x - 1)
+  })
 }
 
 final case class The(t: Exp, x: Exp) extends Exp {
@@ -76,6 +95,13 @@ final case class The(t: Exp, x: Exp) extends Exp {
   override def subst(x: Var, v: Exp): Exp = The(t.subst(x, v), x.subst(x, v))
 
   override def infer(env: Context): Option[Exp] = Some(t)
+
+  override def level(env: Context): Option[Nat] =
+    t.level(env).flatMap(x => if (x == 0) {
+      None
+    } else {
+      Some(x - 1)
+    }) orElse x.level(env)
 }
 
 final case class Lambda(arg: Var, exp: Exp) extends Exp {
@@ -93,17 +119,32 @@ final case class Lambda(arg: Var, exp: Exp) extends Exp {
     case Pi(argPi, domainPi, codomainPi) => exp.check(env.extend(arg, domainPi), codomainPi.subst(argPi, arg))
     case _ => false
   }
+
+  override def level(env: Context): Option[Nat] = exp.level(env)
 }
 
-final case class Universe(level: Exp) extends Exp {
+sealed trait ExpType extends Exp {
+  override final def infer(env: Context): Option[Exp] = this.level(env).map(Universe(_))
+}
+
+// Universe(1) Universe(2) ...
+final case class Universe(level: Exp) extends ExpType {
+  lazy val natLevel: Option[Nat] = ???
+
   override def untypedNormalForm: Exp = level.untypedNormalForm
 
   override def subst(x: Var, v: Exp): Exp = Universe(level.subst(x, v))
 
-  override def infer(env: Context): Option[Exp] = Some(Universe(???))
+  override def level(env: Context): Option[Nat] = Some(natLevel.getOrElse(1) + 1)
 }
 
-final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends Exp {
+object Universe {
+  def apply(level: Exp): Universe = new Universe(level)
+
+  def apply(level: Nat): Universe = ???
+}
+
+final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends ExpType {
   override def untypedNormalForm: Exp = Pi(arg, domain.untypedNormalForm, codomain.untypedNormalForm)
 
   override def subst(x: Var, v: Exp): Exp = Pi(arg, domain.subst(x, v), if (x == arg) {
@@ -112,5 +153,8 @@ final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends Exp {
     codomain.subst(x, v)
   })
 
-  override def infer(env: Context): Option[Exp] = Some(Universe(???))
+  override def level(env: Context): Option[Nat] = for {
+    l0 <- domain.level(env)
+    l1 <- codomain.level(env.extend(arg, domain))
+  } yield l0.max(l1) + 1
 }
