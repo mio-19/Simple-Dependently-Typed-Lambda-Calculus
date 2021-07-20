@@ -10,6 +10,8 @@ final case class Context(inner: HashMap[Var, Exp]) {
   def getOrElse(x: Var, default: => Exp): Exp = inner.getOrElse(x, {
     default
   })
+
+  def toList: List[(Var, Exp)] = inner.toList
 }
 
 object Context {
@@ -21,12 +23,21 @@ sealed trait Exp {
 
   def subst(x: Var, v: Exp): Exp
 
+  final def storeType(xs: List[(Var, Exp)]): Exp = xs match {
+    case Nil => this
+    case (v, t) :: xs => this.subst(v, The(t, v)).storeType(xs)
+  }
+
+  final def storeType(x: Context): Exp = this.storeType(x.toList)
+
   def infer(env: Context): Option[Exp]
 
-  def check(env: Context, t: Exp): Boolean = this.infer(env) match {
+  final def checkInfer(env: Context, t: Exp): Boolean = this.infer(env) match {
     case Some(t0) => t.equalType(t0)
     case None => false
   }
+
+  def check(env: Context, t: Exp): Boolean = checkInfer(env, t)
 
   def equalType(other: Exp): Boolean = ???
 }
@@ -39,9 +50,12 @@ final case class Apply(f: Exp, x: Exp) extends Exp {
 
   override def subst(x: Var, v: Exp): Exp = Apply(f.subst(x, v), x.subst(x, v))
 
-  override def infer(env: Context): Option[Exp] = ???
+  override def infer(env: Context): Option[Exp] = f.infer(env) flatMap {
+    case Pi(argPi, domainPi, codomainPi) if x.check(env, domainPi) => Some(codomainPi.subst(argPi, The(domainPi, x)))
+    case _ => None
+  }
 
-  override def check(env: Context, t: Exp): Boolean = ???
+  override def check(env: Context, t: Exp): Boolean = this.checkInfer(env, t)
 }
 
 final case class Var(x: Symbol) extends Exp {
@@ -56,6 +70,14 @@ final case class Var(x: Symbol) extends Exp {
   override def infer(env: Context): Option[Exp] = env.get(this)
 }
 
+final case class The(t: Exp, x: Exp) extends Exp {
+  override def untypedNormalForm: Exp = x.untypedNormalForm
+
+  override def subst(x: Var, v: Exp): Exp = The(t.subst(x, v), x.subst(x, v))
+
+  override def infer(env: Context): Option[Exp] = Some(t)
+}
+
 final case class Lambda(arg: Var, exp: Exp) extends Exp {
   override def untypedNormalForm: Exp = Lambda(arg, exp.untypedNormalForm)
 
@@ -68,7 +90,7 @@ final case class Lambda(arg: Var, exp: Exp) extends Exp {
   override def infer(env: Context): Option[Exp] = None
 
   override def check(env: Context, t: Exp): Boolean = t.untypedNormalForm match {
-    case Pi(argPi,domainPi,codomainPi) =>exp.check(env.extend(arg, domainPi), codomainPi.subst(argPi, arg))
+    case Pi(argPi, domainPi, codomainPi) => exp.check(env.extend(arg, domainPi), codomainPi.subst(argPi, arg))
     case _ => false
   }
 }
