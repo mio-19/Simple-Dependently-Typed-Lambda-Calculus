@@ -4,6 +4,12 @@ import scala.collection.immutable.HashMap
 
 final case class Context(inner: HashMap[Var, Exp]) {
   def extend(x: Var, t: Exp): Context = Context(inner.updated(x, t))
+
+  def get(x: Var): Option[Exp] = inner.get(x)
+
+  def getOrElse(x: Var, default: => Exp): Exp = inner.getOrElse(x, {
+    default
+  })
 }
 
 object Context {
@@ -14,6 +20,15 @@ sealed trait Exp {
   def untypedNormalForm: Exp
 
   def subst(x: Var, v: Exp): Exp
+
+  def infer(env: Context): Option[Exp]
+
+  def check(env: Context, t: Exp): Boolean = this.infer(env) match {
+    case Some(t0) => t.equalType(t0)
+    case None => false
+  }
+
+  def equalType(other: Exp): Boolean = ???
 }
 
 final case class Apply(f: Exp, x: Exp) extends Exp {
@@ -23,6 +38,10 @@ final case class Apply(f: Exp, x: Exp) extends Exp {
   }
 
   override def subst(x: Var, v: Exp): Exp = Apply(f.subst(x, v), x.subst(x, v))
+
+  override def infer(env: Context): Option[Exp] = ???
+
+  override def check(env: Context, t: Exp): Boolean = ???
 }
 
 final case class Var(x: Symbol) extends Exp {
@@ -33,6 +52,8 @@ final case class Var(x: Symbol) extends Exp {
   } else {
     this
   }
+
+  override def infer(env: Context): Option[Exp] = env.get(this)
 }
 
 final case class Lambda(arg: Var, exp: Exp) extends Exp {
@@ -43,12 +64,21 @@ final case class Lambda(arg: Var, exp: Exp) extends Exp {
   } else {
     Lambda(arg, exp.subst(x, v))
   }
+
+  override def infer(env: Context): Option[Exp] = None
+
+  override def check(env: Context, t: Exp): Boolean = t.untypedNormalForm match {
+    case Pi(argPi,domainPi,codomainPi) =>exp.check(env.extend(arg, domainPi), codomainPi.subst(argPi, arg))
+    case _ => false
+  }
 }
 
 final case class Universe(level: Exp) extends Exp {
   override def untypedNormalForm: Exp = level.untypedNormalForm
 
   override def subst(x: Var, v: Exp): Exp = Universe(level.subst(x, v))
+
+  override def infer(env: Context): Option[Exp] = Some(Universe(???))
 }
 
 final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends Exp {
@@ -59,4 +89,6 @@ final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends Exp {
   } else {
     codomain.subst(x, v)
   })
+
+  override def infer(env: Context): Option[Exp] = Some(Universe(???))
 }
