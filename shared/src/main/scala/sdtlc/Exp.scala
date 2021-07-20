@@ -89,6 +89,12 @@ final case class Var(x: Symbol) extends Exp {
   })
 }
 
+object Var {
+  def apply(x: Symbol): Var = new Var(x)
+
+  def apply(x: String): Var = new Var(Symbol(x))
+}
+
 final case class The(t: Exp, x: Exp) extends Exp {
   override def untypedNormalForm: Exp = x.untypedNormalForm
 
@@ -129,7 +135,7 @@ sealed trait ExpType extends Exp {
 
 // Universe(1) Universe(2) ...
 final case class Universe(level: Exp) extends ExpType {
-  lazy val natLevel: Option[Nat] = ???
+  lazy val natLevel: Option[Nat] = NatUtils.toHost(level)
 
   override def untypedNormalForm: Exp = level.untypedNormalForm
 
@@ -157,4 +163,49 @@ final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends ExpType {
     l0 <- domain.level(env)
     l1 <- codomain.level(env.extend(arg, domain))
   } yield l0.max(l1) + 1
+}
+
+object ToHost {
+  def substThrowing(x: Exp, subst: HashMap[Var, Any]): Any = this.applyThrowing(x, List(), subst)
+
+  def subst(x: Exp, subst: HashMap[Var, Any]): Option[Any] = try {
+    Some(substThrowing(x, subst))
+  } catch {
+    case _: ClassCastException | _: IllegalStateException => None
+    case e: Throwable => throw e
+  }
+
+  def applyThrowing(x: Exp, args: List[Any] = List(), subst: HashMap[Var, Any] = HashMap()): Any = x.untypedNormalForm match {
+    case x: Var => aux(subst.get(x), args)
+    case The(_, x) => applyThrowing(x, args, subst)
+    case Lambda(arg, exp) => aux((hostArg => this.substThrowing(exp, subst.updated(arg, hostArg))): Any => Any, args)
+    case _: Apply | _: Universe | _: Pi => throw new IllegalStateException(s"unexpected $x")
+  }
+
+  def apply(x: Exp, args: List[Any] = List(), subst: HashMap[Var, Any] = HashMap()): Option[Any] = try {
+    Some(applyThrowing(x, args, subst))
+  } catch {
+    case _: ClassCastException | _: IllegalStateException => None
+    case e: Throwable => throw e
+  }
+
+  private def aux(x: Any, args: List[Any]): Any = args match {
+    case arg0 :: args => aux(x.asInstanceOf[Any => Any](arg0), args)
+    case Nil => x
+  }
+}
+
+object NatUtils {
+  private val succ: Nat => Nat = x => x + 1
+  private val zero: Nat = 0
+
+  def toHost(x: Exp): Option[Nat] = ToHost.apply(x, List(succ, zero)).map(_.asInstanceOf[Nat])
+
+  private def aux(x: Nat): Exp = if (x == 0) {
+    Var("x")
+  } else {
+    Apply(Var("f"), aux(x - 1))
+  }
+
+  def toExp(x: Nat): Exp = Lambda(Var("f"), Lambda(Var("x"), aux(x)))
 }
