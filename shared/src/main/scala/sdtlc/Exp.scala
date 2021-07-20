@@ -50,16 +50,16 @@ sealed trait Exp {
   def level(env: Context): Option[Nat]
 }
 
-final case class Apply(f: Exp, x: Exp) extends Exp {
+final case class Apply(f: Exp, value: Exp) extends Exp {
   override def untypedNormalForm: Exp = f.untypedNormalForm match {
-    case Lambda(arg, body) => body.subst(arg, x).untypedNormalForm
-    case f => Apply(f, x)
+    case Lambda(arg, body) => body.subst(arg, value).untypedNormalForm
+    case f => Apply(f, value.untypedNormalForm)
   }
 
-  override def subst(x: Var, v: Exp): Exp = Apply(f.subst(x, v), x.subst(x, v))
+  override def subst(x: Var, v: Exp): Exp = Apply(f.subst(x, v), value.subst(x, v))
 
   override def infer(env: Context): Option[Exp] = f.infer(env) flatMap {
-    case Pi(argPi, domainPi, codomainPi) if x.check(env, domainPi) => Some(codomainPi.subst(argPi, The(domainPi, x)))
+    case Pi(argPi, domainPi, codomainPi) if value.check(env, domainPi) => Some(codomainPi.subst(argPi, The(domainPi, value)))
     case _ => None
   }
 
@@ -67,7 +67,7 @@ final case class Apply(f: Exp, x: Exp) extends Exp {
 
   override def level(env: Context): Option[Nat] = for {
     l0 <- f.level(env)
-    l1 <- x.level(env)
+    l1 <- value.level(env)
   } yield l0.max(l1)
 }
 
