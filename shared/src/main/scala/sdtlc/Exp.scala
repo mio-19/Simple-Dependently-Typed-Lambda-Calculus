@@ -147,7 +147,7 @@ final case class Universe(level: Exp) extends ExpType {
 object Universe {
   def apply(level: Exp): Universe = new Universe(level)
 
-  def apply(level: Nat): Universe = ???
+  def apply(level: Nat): Universe = Universe(NatUtils.toExp(level))
 }
 
 final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends ExpType {
