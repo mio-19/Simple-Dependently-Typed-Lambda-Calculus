@@ -27,6 +27,11 @@ object Context {
 sealed trait Exp {
   def untypedNormalForm: Exp
 
+  final def etaReducedUntypedNormalForm: Exp = this.untypedNormalForm match {
+    case Lambda(v0, Apply(f, v1)) if v0 == v1 => f
+    case x => x
+  }
+
   def subst(x: Var, v: Exp): Exp
 
   final def storeType(xs: List[(Var, Exp)]): Exp = xs match {
