@@ -1,22 +1,22 @@
 package sdtlc
 
 sealed trait UntypedExp {
-  def normalForm: UntypedExp
+  def betaReduce: UntypedExp
 
   def subst(x: UntypedVar, v: UntypedExp): UntypedExp
 }
 
 final case class UntypedApply(f: UntypedExp, value: UntypedExp) extends UntypedExp {
-  override def normalForm: UntypedExp = f.normalForm match {
-    case UntypedLambda(arg, exp) => exp.subst(arg, value).normalForm
-    case f => UntypedApply(f, value.normalForm)
+  override def betaReduce: UntypedExp = f.betaReduce match {
+    case UntypedLambda(arg, exp) => exp.subst(arg, value).betaReduce
+    case f => UntypedApply(f, value.betaReduce)
   }
 
   override def subst(x: UntypedVar, v: UntypedExp): UntypedExp = UntypedApply(f.subst(x, v), value.subst(x, v))
 }
 
 final case class UntypedVar(x: Symbol) extends UntypedExp {
-  override def normalForm: UntypedExp = this
+  override def betaReduce: UntypedExp = this
 
   override def subst(x: UntypedVar, v: UntypedExp): UntypedExp = if (x == this) {
     v
@@ -26,7 +26,7 @@ final case class UntypedVar(x: Symbol) extends UntypedExp {
 }
 
 final case class UntypedLambda(arg: UntypedVar, exp: UntypedExp) extends UntypedExp {
-  override def normalForm: UntypedExp = UntypedLambda(arg, exp.normalForm)
+  override def betaReduce: UntypedExp = UntypedLambda(arg, exp.betaReduce)
 
   override def subst(x: UntypedVar, v: UntypedExp): UntypedExp = if (x == arg) {
     this
