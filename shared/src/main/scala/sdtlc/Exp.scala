@@ -25,12 +25,18 @@ object Context {
 }
 
 sealed trait Exp {
-  def untypedNormalForm: Exp
+  def betaReduce: Exp
 
-  final def etaReducedUntypedNormalForm: Exp = this.untypedNormalForm match {
-    case Lambda(v0, Apply(f, v1)) if v0 == v1 => f
-    case x => x
+  final def betaEtaReduce: Exp = {
+    val next = this.betaReduce.etaReduce
+    if (next == this) {
+      this
+    } else {
+      next.betaEtaReduce
+    }
   }
+
+  def etaReduce: Exp
 
   def subst(x: Var, v: Exp): Exp
 
@@ -53,19 +59,21 @@ sealed trait Exp {
   def equalType(other: Exp): Boolean = ???
 
   def level(env: Context): Option[Nat]
+
+  def contains(v: Var): Boolean
 }
 
 final case class Apply(f: Exp, value: Exp) extends Exp {
-  override def untypedNormalForm: Exp = f.untypedNormalForm match {
+  override def betaReduce: Exp = f.betaReduce match {
     case Lambda(arg, body) => {
       val nextStep = body.subst(arg, value)
       if (this == nextStep) {
         throw new IllegalStateException("Welcome to the Future!")
       } else {
-        this.untypedNormalForm
+        this.betaReduce
       }
     }
-    case f => Apply(f, value.untypedNormalForm)
+    case f => Apply(f, value.betaReduce)
   }
 
   override def subst(x: Var, v: Exp): Exp = Apply(f.subst(x, v), value.subst(x, v))
@@ -81,10 +89,14 @@ final case class Apply(f: Exp, value: Exp) extends Exp {
     l0 <- f.level(env)
     l1 <- value.level(env)
   } yield l0.max(l1)
+
+  override def etaReduce: Exp = Apply(f.etaReduce, value.etaReduce)
+
+  override def contains(v: Var): Boolean = f.contains(v) || value.contains(v)
 }
 
 final case class Var(x: Symbol) extends Exp {
-  override def untypedNormalForm: Exp = this
+  override def betaReduce: Exp = this
 
   override def subst(x: Var, v: Exp): Exp = if (x == this) {
     v
@@ -99,6 +111,10 @@ final case class Var(x: Symbol) extends Exp {
   } else {
     Some(x - 1)
   })
+
+  override def etaReduce: Exp = this
+
+  override def contains(v: Var): Boolean = v == this
 }
 
 object Var {
@@ -108,7 +124,7 @@ object Var {
 }
 
 final case class The(t: Exp, x: Exp) extends Exp {
-  override def untypedNormalForm: Exp = x.untypedNormalForm
+  override def betaReduce: Exp = x.betaReduce
 
   override def subst(x: Var, v: Exp): Exp = The(t.subst(x, v), x.subst(x, v))
 
@@ -120,10 +136,14 @@ final case class The(t: Exp, x: Exp) extends Exp {
     } else {
       Some(x - 1)
     }) orElse x.level(env)
+
+  override def etaReduce: Exp = The(t.etaReduce, x.etaReduce)
+
+  override def contains(v: Var): Boolean = t.contains(v) || x.contains(v)
 }
 
 final case class Lambda(arg: Var, exp: Exp) extends Exp {
-  override def untypedNormalForm: Exp = Lambda(arg, exp.untypedNormalForm)
+  override def betaReduce: Exp = Lambda(arg, exp.betaReduce)
 
   override def subst(x: Var, v: Exp): Exp = if (x == arg) {
     this
@@ -133,12 +153,23 @@ final case class Lambda(arg: Var, exp: Exp) extends Exp {
 
   override def infer(env: Context): Option[Exp] = None
 
-  override def check(env: Context, t: Exp): Boolean = t.untypedNormalForm match {
+  override def check(env: Context, t: Exp): Boolean = t.betaReduce match {
     case Pi(argPi, domainPi, codomainPi) => exp.check(env.extend(arg, domainPi), codomainPi.subst(argPi, arg))
     case _ => false
   }
 
   override def level(env: Context): Option[Nat] = exp.level(env)
+
+  override def etaReduce: Exp = this match {
+    case Lambda(v0, Apply(f, v1)) if v0 == v1 && !f.contains(v0) => f
+    case _ => Lambda(arg, exp.etaReduce)
+  }
+
+  override def contains(v: Var): Boolean = if (v == arg) {
+    false
+  } else {
+    exp.contains(v)
+  }
 }
 
 sealed trait ExpType extends Exp {
@@ -149,11 +180,15 @@ sealed trait ExpType extends Exp {
 final case class Universe(level: Exp) extends ExpType {
   lazy val natLevel: Option[Nat] = NatUtils.toHost(level)
 
-  override def untypedNormalForm: Exp = level.untypedNormalForm
+  override def betaReduce: Exp = level.betaReduce
 
   override def subst(x: Var, v: Exp): Exp = Universe(level.subst(x, v))
 
   override def level(env: Context): Option[Nat] = Some(natLevel.getOrElse(1) + 1)
+
+  override def etaReduce: Exp = Universe(level.etaReduce)
+
+  override def contains(v: Var): Boolean = level.contains(v)
 }
 
 object Universe {
@@ -163,7 +198,7 @@ object Universe {
 }
 
 final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends ExpType {
-  override def untypedNormalForm: Exp = Pi(arg, domain.untypedNormalForm, codomain.untypedNormalForm)
+  override def betaReduce: Exp = Pi(arg, domain.betaReduce, codomain.betaReduce)
 
   override def subst(x: Var, v: Exp): Exp = Pi(arg, domain.subst(x, v), if (x == arg) {
     codomain
@@ -175,6 +210,16 @@ final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends ExpType {
     l0 <- domain.level(env)
     l1 <- codomain.level(env.extend(arg, domain))
   } yield l0.max(l1) + 1
+
+  override def etaReduce: Exp = Pi(arg, domain.etaReduce, codomain.etaReduce)
+
+  override def contains(v: Var): Boolean = domain.contains(v) ||
+
+  if (v == arg) {
+    false
+  } else {
+    codomain.contains(v)
+  }
 }
 
 object ToHost {
@@ -187,7 +232,7 @@ object ToHost {
     case e: Throwable => throw e
   }
 
-  def applyThrowing(x: Exp, args: List[Any] = List(), subst: HashMap[Var, Any] = HashMap()): Any = x.untypedNormalForm match {
+  def applyThrowing(x: Exp, args: List[Any] = List(), subst: HashMap[Var, Any] = HashMap()): Any = x.betaReduce match {
     case x: Var => aux(subst.get(x), args)
     case The(_, x) => applyThrowing(x, args, subst)
     case Lambda(arg, exp) => aux((hostArg => this.substThrowing(exp, subst.updated(arg, hostArg))): Any => Any, args)
