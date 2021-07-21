@@ -213,13 +213,11 @@ final case class Pi(arg: Var, domain: Exp, codomain: Exp) extends ExpType {
 
   override def etaReduce: Exp = Pi(arg, domain.etaReduce, codomain.etaReduce)
 
-  override def contains(v: Var): Boolean = domain.contains(v) ||
-
-  if (v == arg) {
+  override def contains(v: Var): Boolean = domain.contains(v) || (if (v == arg) {
     false
   } else {
     codomain.contains(v)
-  }
+  })
 }
 
 object ToHost {
